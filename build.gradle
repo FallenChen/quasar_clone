@@ -1,0 +1,26 @@
+plugins {
+    id 'java'
+}
+
+group 'org.garry'
+version '0.01-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // https://mvnrepository.com/artifact/org.ow2.asm/asm
+    implementation group: 'org.ow2.asm', name: 'asm', version: '8.0.1'
+// https://mvnrepository.com/artifact/org.ow2.asm/asm-analysis
+    implementation group: 'org.ow2.asm', name: 'asm-analysis', version: '8.0.1'
+// https://mvnrepository.com/artifact/asm/asm-util
+    implementation group: 'asm', name: 'asm-util', version: '3.3.1'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.6.0'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'
+}
+
+test {
+    useJUnitPlatform()
+}
