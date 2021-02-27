@@ -5,6 +5,7 @@ import org.objectweb.asm.*;
 import org.objectweb.asm.tree.MethodNode;
 
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Instrument a class by instrumenting all suspendable methods and copying the others
@@ -100,5 +101,25 @@ public class InstrumentClass extends ClassVisitor {
             }
         }
         super.visitEnd();
+    }
+
+    private MethodVisitor makeOutMV(MethodNode mn)
+    {
+        return super.visitMethod(mn.access,mn.name,mn.desc,mn.signature,toStringArray(mn.exceptions));
+    }
+
+    private static boolean checkAccess(int access)
+    {
+        return (access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) == 0;
+    }
+
+    private static String[] toStringArray(List<?> l)
+    {
+        if(l.isEmpty())
+        {
+            return null;
+        }
+
+        return l.toArray(new String[l.size()]);
     }
 }
