@@ -3,6 +3,7 @@ package org.garry.quasar.instrument;
 import org.garry.quasar.Coroutine;
 import org.objectweb.asm.*;
 import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.analysis.AnalyzerException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -95,7 +96,21 @@ public class InstrumentClass extends ClassVisitor {
                 {
                     MethodVisitor outMV = makeOutMV(mn);
                     try {
-
+                        InstrumentMethod im = new InstrumentMethod(db, className, mn);
+                        if(im.collectCodeBlocks())
+                        {
+                            if(mn.name.charAt(0) == '<')
+                            {
+                                throw new UnableToInstrumentException("special method",className,mn.name,mn.desc);
+                            }
+                            im.accept(outMV);
+                        }else {
+                            mn.accept(outMV);
+                        }
+                    }catch (AnalyzerException ex)
+                    {
+                        ex.printStackTrace();
+                        throw new InternalError(ex.getMessage());
                     }
                 }
             }

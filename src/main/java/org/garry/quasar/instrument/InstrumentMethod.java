@@ -1,5 +1,7 @@
 package org.garry.quasar.instrument;
 
+import org.objectweb.asm.Label;
+import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -99,6 +101,18 @@ public class InstrumentMethod {
         return numCodeBlocks > 1;
     }
 
+    private static int isBlockingCall(MethodInsnNode ins)
+    {
+        for(int i=0,n=BLOCKING_METHODS.length; i< n; i++)
+        {
+            if(BLOCKING_METHODS[i].match(ins))
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
 
     private FrameInfo addCodeBlock(Frame f, int end)
     {
@@ -112,6 +126,17 @@ public class InstrumentMethod {
         codeBlocks[numCodeBlocks] = fi;
         return fi;
     }
+
+    // makes the given MethodVisitor visit method
+    public void accept(MethodVisitor mv)
+    {
+        db.log(LogLevel.INFO,"Instrumenting method %s%s%s",className,mn.name,mn.desc);
+
+        mv.visitCode();
+
+    }
+
+
 
 
     static class FrameInfo{
