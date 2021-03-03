@@ -76,6 +76,14 @@ public class CoroutineLocal<T> {
 
     }
 
+    /**
+     * Returns the value in the current coroutine's copy of this
+     * thread-local variable.If the variable has no value for the
+     * current thread, it is first initialized to the value returned
+     * by an invocation of the {@link #initialValue()} method
+     *
+     * @return the current coroutine's value of this thread-local
+     */
     public T get()
     {
 
