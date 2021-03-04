@@ -31,7 +31,7 @@ public class Coroutine implements Runnable, Serializable {
     private final CoroutineProto proto;
     private final Stack stack;
     private State state;
-
+    CoroutineLocal.CoroutineLocalMap coroutineLocals;
     /**
      * Suspend the currently running Coroutine on the calling thread
      * @throws SuspendException
