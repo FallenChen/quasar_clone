@@ -308,6 +308,7 @@ public class CoroutineLocal<T> {
             // least as common to use set() to create new entries as
             // it is to replace existing ones, in which case, a fast
             // path would fail more often than not.
+
             Entry[] tab = table;
             int len = tab.length;
             int i = key.coroutineLocalHashCode & (len - 1);
@@ -331,6 +332,122 @@ public class CoroutineLocal<T> {
             if(!cleanSomeSlots(i,sz) && sz >= threshold)
                 rehash();
         }
+
+        private boolean cleanSomeSlots(int i, int n)
+        {
+            boolean removed = false;
+            Entry[] tab = table;
+            int len = tab.length;
+            do {
+                i = nextIndex(i,len);
+                Entry e = tab[i];
+                if(e != null && e.get() == null)
+                {
+                    n = len;
+                    removed = true;
+                    i = expungeStaleEntry(i);
+                }
+            }while ((n >>>=1) != 0);
+            return removed;
+        }
+
+        private void replaceStaleEntry(CoroutineLocal key, Object value, int staleSlot)
+        {
+            Entry[] tab = table;
+            int len = tab.length;
+            Entry e;
+
+            // Back up to check for prior stale entry in current run.
+            // We clean out whole runs at a time to avoid continual
+            // incremental rehashing due to garbage collector freeing
+            // up refs in bunches
+            int slotToExpunge = staleSlot;
+            for(int i= prevIndex(staleSlot,len); (e = tab[i])!=null; i = prevIndex(i,len))
+                slotToExpunge = i;
+            // Find either the key or trailing null slot of run, whichever occurs first
+            for(int i= nextIndex(staleSlot,len);(e =tab[i])!=null; i = nextIndex(i,len)) {
+                CoroutineLocal k = e.get();
+
+                // If we find key, then we need to swap it
+                // with the stale entry to maintain hash table order
+                // The newly stale slot, or any other stale slot
+                // encountered above it, can then be sent to expungeStaleEntry
+                // to remove or rehash all of the other entries in run
+                if (k == key) {
+                    e.value = value;
+                    tab[i] = tab[staleSlot];
+                    tab[staleSlot] = e;
+
+                    //start expunge at preceding stale entry if it exists
+                    if (slotToExpunge == staleSlot) {
+                        slotToExpunge = i;
+                    }
+                    cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
+                    return;
+                }
+            }
+
+                // If key not found, put new entry in stale slot
+                tab[staleSlot].value = null;
+                tab[staleSlot] = new Entry(key,value);
+
+                // If there are any other stale entries in run, expunge them
+                if(slotToExpunge !=staleSlot)
+                    cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
+        }
+
+        /**
+         * Re-pack and/or re-size the table.First scan the entire
+         * table removing stale entries. It this doesn't sufficiently
+         * shrink the size of the table, double the table size
+         */
+        private void rehash()
+        {
+            expungeStaleEntries();
+
+            // Use lower threshold for doubling to avoid hysteresis
+            if(size >= threshold - threshold/4)
+            {
+                resize();
+            }
+        }
+
+        /**
+         * Double the capacity of the table
+         */
+        private void resize()
+        {
+            Entry[] oldTab = table;
+            int oldLen = oldTab.length;
+            int newLen = oldLen * 2;
+            Entry[] newTab = new Entry[newLen];
+            int count = 0;
+
+            for(int j = 0; j < oldLen; ++j)
+            {
+                Entry e = oldTab[j];
+                if(e != null)
+                {
+                    CoroutineLocal k = e.get();
+                    if(k == null)
+                    {
+                        e.value = null;// Help the GC
+                    }else {
+                        int h = k.coroutineLocalHashCode & (newLen - 1);
+                        while (newTab[h] != null)
+                            h = nextIndex(h,newLen);
+                        newTab[h] = e;
+                        count++;
+                    }
+                }
+            }
+
+            setThreshold(newLen);
+            size = count;
+            table = newTab;
+        }
+
+
 
         /**
          * Expunge all stale entries in the table
