@@ -1,13 +1,11 @@
 package org.garry.quasar.instrument;
 
+import org.garry.quasar.SuspendException;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.tree.AbstractInsnNode;
-import org.objectweb.asm.tree.InsnList;
-import org.objectweb.asm.tree.MethodInsnNode;
-import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.*;
 import org.objectweb.asm.tree.analysis.*;
 
 import java.util.Stack;
@@ -134,6 +132,109 @@ public class InstrumentMethod {
 
         mv.visitCode();
 
+        Label lMethodStart = new Label();
+        Label lMethodEnd = new Label();
+        Label lCatchSEE = new Label();
+        Label lCatchAll = new Label();
+        Label[] lMethodCalls = new Label[numCodeBlocks - 1];
+
+        for(int i= 1; i<numCodeBlocks; i++)
+        {
+            lMethodCalls[i-1] = new Label();
+        }
+
+        mv.visitTryCatchBlock(lMethodStart, lMethodEnd, lCatchSEE, CheckInstrumentationVisitor.EXCEPTION_NAME);
+
+        for(Object o : mn.tryCatchBlocks)
+        {
+            TryCatchBlockNode tcb = (TryCatchBlockNode) o;
+            if(CheckInstrumentationVisitor.EXCEPTION_NAME.equals(tcb.type))
+            {
+                throw new UnableToInstrumentException("catch for " +
+                        SuspendException.class.getSimpleName(), className, mn.name, mn.desc);
+            }
+            tcb.accept(mv);
+        }
+
+        if(mn.visibleParameterAnnotations != null)
+        {
+            dumpParameterAnnotations(mv,mn.visibleParameterAnnotations,true);
+        }
+
+        if(mn.invisibleParameterAnnotations != null)
+        {
+            dumpParameterAnnotations(mv,mn.invisibleParameterAnnotations,false);
+        }
+
+        if(mn.visibleAnnotations != null)
+        {
+            for(Object o : mn.visibleAnnotations)
+            {
+                AnnotationNode an = (AnnotationNode) o;
+                an.accept(mv.visitAnnotation(an.desc,true));
+            }
+        }
+
+        mv.visitTryCatchBlock(lMethodStart,lMethodEnd,lCatchAll,null);
+
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, STACK_NAME, "getStack", "()L"+STACK_NAME+";");
+        mv.visitInsn(Opcodes.DUP);
+        mv.visitVarInsn(Opcodes.ASTORE, lvarStack);
+
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, STACK_NAME, "nextMethodEntry", "()I");
+        mv.visitTableSwitchInsn(1, numCodeBlocks-1, lMethodStart, lMethodCalls);
+
+        mv.visitLabel(lMethodStart);
+        dumpCodeBlock(mv, 0, 0);
+
+        for(int i = 1; i<numCodeBlocks; i++)
+        {
+            FrameInfo fi = codeBlocks[i];
+
+            MethodInsnNode min = (MethodInsnNode) mn.instructions.get(fi.endInstruction);
+            if(InstrumentClass.COROUTINE_NAME.equals(min.owner) && "yield".equals(min.name))
+            {
+                // special case - call to yield() - resume AFTER the call
+                if(min.getOpcode() != Opcodes.INVOKESTATIC)
+                {
+                    throw new UnableToInstrumentException("invalid call to yiled()",className,mn.name,mn.desc);
+                }
+                emitStoreState(mv,i,fi);
+                mv.visitFieldInsn(Opcodes.GETSTATIC, STACK_NAME,
+                        "exception_instance_not_for_user_code",
+                        CheckInstrumentationVisitor.EXCEPTION_DESC);
+                mv.visitInsn(Opcodes.ATHROW);
+                min.accept(mv);
+                mv.visitLabel(lMethodCalls[i-1]);
+                emitRestoreState(mv,i,fi);
+                dumpCodeBlock(mv,i,1);// skip the call
+            }else {
+                // normal case - call to a suspendable method - resume before the call
+                emitStoreState(mv,i,fi);
+                mv.visitLabel(lMethodCalls[i-1]);
+                emitRestoreState(mv,i,fi);
+                dumpCodeBlock(mv,i,0);
+            }
+        }
+
+        mv.visitLabel(lMethodEnd);
+
+        mv.visitLabel(lCatchAll);
+        emitPopMethod(mv);
+        mv.visitLabel(lCatchSEE);
+        mv.visitInsn(Opcodes.ATHROW);// rethrow shared between catchAll and catchSSE
+
+        if(mn.localVariables != null)
+        {
+            for(Object o : mn.localVariables)
+            {
+                ((LocalVariableNode)o).accept(mv);
+            }
+        }
+
+        mv.visitMaxs(mn.maxStack + 3, mn.maxLocals+1+additionalLocals);
+        mv.visitEnd();
+
     }
 
 
@@ -174,7 +275,7 @@ public class InstrumentMethod {
                             if(db.isDebug())
                             {
                                 // need to log index before replacing instruction
-                                db.log(LogLevel.DEBUG, "Omitting instruction %d: %s", insnList.indexOf(newValue.insn), newValue.formatInsn())
+                                db.log(LogLevel.DEBUG, "Omitting instruction %d: %s", insnList.indexOf(newValue.insn), newValue.formatInsn());
                             }
                             insnList.set(newValue.insn, new OmittedInstruction(newValue.insn));
                         }
@@ -216,7 +317,6 @@ public class InstrumentMethod {
 
             numSlots = Math.max(idxPrim,idxObj);
             numObjSlots = idxObj;
-
         }
     }
 

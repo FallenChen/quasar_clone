@@ -90,9 +90,52 @@ public class CoroutineLocal<T> {
         CoroutineLocalMap map = getMap(c);
         if(map !=null)
         {
+            CoroutineLocalMap.Entry e = map.getEntry(this);
+            if(e != null)
+                return (T) e.value;
+        }
+        return setInitialValue();
+    }
 
+    /**
+     * Variant of set() to establish initialValue. Used instead
+     * of set() in case user has overridden the set() method
+     * @return
+     */
+    private T setInitialValue() {
+        T value = initialValue();
+        Coroutine c = Coroutine.getActiveCoroutine();
+        CoroutineLocalMap map = getMap(c);
+        if(map != null)
+        {
+            map.set(this,value);
+        }else
+        {
+            createMap(c,value);
+        }
+        return value;
+    }
+
+    public void set(T value)
+    {
+        Coroutine c = Coroutine.getActiveCoroutine();
+        CoroutineLocalMap map = getMap(c);
+        if(map != null)
+        {
+            map.set(this,value);
+        }else
+        {
+            createMap(c,value);
         }
     }
+
+    public void remove()
+    {
+        CoroutineLocalMap m = getMap(Coroutine.getActiveCoroutine());
+        if(m != null)
+            m.remove(this);
+    }
+
 
     /**
      * Get the map associated with a ThreadLocal. Overridden in
@@ -103,6 +146,17 @@ public class CoroutineLocal<T> {
     CoroutineLocalMap getMap(Coroutine c)
     {
         return c.coroutineLocals;
+    }
+
+    /**
+     * Create the map associated with a ThreadLocal. Overridden in
+     * Inheritable ThreadLocal
+     * @param c
+     * @param firstValue
+     */
+    void createMap(Coroutine c, T firstValue)
+    {
+        c.coroutineLocals = new CoroutineLocalMap(this, firstValue);
     }
 
     /**
@@ -331,6 +385,26 @@ public class CoroutineLocal<T> {
             int sz = ++size;
             if(!cleanSomeSlots(i,sz) && sz >= threshold)
                 rehash();
+        }
+
+        /**
+         * Remove the entry for key
+         * @param key
+         */
+        private void remove(CoroutineLocal key)
+        {
+           Entry[] tab = table;
+           int len = tab.length;
+           int i = key.coroutineLocalHashCode & (len - 1);
+           for(Entry e = tab[i]; e != null; e = tab[i = nextIndex(i,len)])
+           {
+               if(e.get() == key)
+               {
+                   e.clear();
+                   expungeStaleEntry(i);
+                   return;
+               }
+           }
         }
 
         private boolean cleanSomeSlots(int i, int n)
