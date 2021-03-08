@@ -8,6 +8,7 @@ import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
 import org.objectweb.asm.tree.analysis.*;
 
+import java.util.List;
 import java.util.Stack;
 
 /**
@@ -72,7 +73,7 @@ public class InstrumentMethod {
                         db.log(LogLevel.DEBUG, "Method call at instruction %d to %s#%s%s is suspendable",
                                 i,min.owner,min.name,min.desc);
                         FrameInfo fi = addCodeBlock(f,i);
-                        spliTryCatch(fi);
+                        splitTryCatch(fi);
                     }else
                     {
                         int blockingId = isBlockingCall(min);
@@ -236,6 +237,121 @@ public class InstrumentMethod {
         mv.visitEnd();
 
     }
+
+    private void splitTryCatch(FrameInfo fi)
+    {
+        for (int i=0; i<mn.tryCatchBlocks.size(); i++)
+        {
+            TryCatchBlockNode tcb = (TryCatchBlockNode) mn.tryCatchBlocks.get(i);
+
+            int start = getLabelIdx(tcb.start);
+            int end = getLabelIdx(tcb.end);
+
+            if(start <= fi.endInstruction && end >= fi.endInstruction)
+            {
+                // need to split try/catch around the suspendable call
+                if(start == fi.endInstruction)
+                {
+                    tcb.start = fi.createAfterLabel();
+                }else
+                {
+                    if(end > fi.endInstruction)
+                    {
+                        TryCatchBlockNode tcb2 = new TryCatchBlockNode(fi.createAfterLabel,
+                                tcb.end, tcb.handler, tcb.type);
+                        mn.tryCatchBlocks.add(i+1, tcb2);
+                    }
+                    tcb.end = fi.createBeforeLabel();
+                }
+            }
+        }
+    }
+
+    private void dumpCodeBlock(MethodVisitor mv, int idx, int skip)
+    {
+        int start = codeBlocks[idx].endInstruction;
+        int end = codeBlocks[idx+1].endInstruction;
+
+        for(int i= start+skip; i<end; i++)
+        {
+            AbstractInsnNode ins = mn.instructions.get(i);
+            switch (ins.getOpcode())
+            {
+                case Opcodes.RETURN:
+                case Opcodes.ARETURN:
+                case Opcodes.IRETURN:
+                case Opcodes.LRETURN:
+                case Opcodes.FRETURN:
+                case Opcodes.DRETURN:
+                    emitPopMethod(mv);
+                    break;
+                case Opcodes.MONITORENTER:
+                case Opcodes.MONITOREXIT:
+                    if(!db.isAllowMonitors())
+                    {
+                        throw new UnableToInstrumentException("synchronisation",className,mn.name,mn.desc);
+                    }else if(!warnedAboutMonitors)
+                    {
+                        warnedAboutMonitors = true;
+                        db.log(LogLevel.WARNING,"Method %s#%s%s contains synchronisation", className,mn.name, mn.desc);
+                    }
+                    break;
+                case Opcodes.INVOKEVIRTUAL:
+                    MethodInsnNode min = (MethodInsnNode) ins;
+                    if("<init>".equals(min.name))
+                    {
+                        int argSize = TypeAnalyzer.getNumArguments(min.desc);
+                        Frame frame = frames[i];
+                        int stackIndex = frame.getStackSize() - argSize - 1;
+                        Value thisValue = frame.getStack(stackIndex);
+                        if(stackIndex >=1 && isNewValue(thisValue,true) &&
+                                             isNewValue(frame.getStack(stackIndex-1),false))
+                        {
+                            NewValue newValue = (NewValue) thisValue;
+                            if(newValue.omitted)
+                            {
+                                emitNewAndDup(mv,frame,stackIndex,min);
+                            }
+                        }else
+                        {
+                            db.log(LogLevel.WARNING,"Expected to find a NewValue on stack index %d: %s",stackIndex,frame);
+                        }
+                    }
+                    break;
+            }
+            ins.accept(mv);
+        }
+    }
+
+    private static void dumpParameterAnnotations(MethodVisitor mv, List[] parameterAnnotations,boolean visible)
+    {
+        for(int i= 0; i < parameterAnnotations.length; i++)
+        {
+            for(Object e : parameterAnnotations[i])
+            {
+                AnnotationNode an = (AnnotationNode)e;
+                an.accept(mv.visitParameterAnnotation(i,an.desc,visible));
+            }
+        }
+    }
+
+    private static void emitConst(MethodVisitor mv, int value)
+    {
+        if(value >=-1 && value <=5)
+        {
+            mv.visitInsn(Opcodes.ICONST_0 + value);
+        }else if((byte)value == value)
+        {
+            mv.visitIntInsn(Opcodes.BIPUSH, value);
+        }else if((short)value == value)
+        {
+            mv.visitIntInsn(Opcodes.SIPUSH,value);
+        }else
+        {
+            mv.visitLdcInsn(value);
+        }
+    }
+
 
 
 
