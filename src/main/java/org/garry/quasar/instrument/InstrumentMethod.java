@@ -8,6 +8,7 @@ import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
 import org.objectweb.asm.tree.analysis.*;
 
+import java.util.Base64;
 import java.util.List;
 import java.util.Stack;
 
@@ -124,6 +125,28 @@ public class InstrumentMethod {
         FrameInfo fi = new FrameInfo(f,firstLocal,end,mn.instructions,db);
         codeBlocks[numCodeBlocks] = fi;
         return fi;
+    }
+
+    private int getLabelIdx(LabelNode l)
+    {
+        int idx;
+        if(l instanceof BlockLabelNode)
+        {
+            idx = ((BlockLabelNode)l).idx;
+        }else
+        {
+            idx = mn.instructions.indexOf(l);
+        }
+        // search for the "real" instruction
+        for(;;)
+        {
+            int type = mn.instructions.get(idx).getType();
+            if(type != AbstractInsnNode.LABEL && type != AbstractInsnNode.LINE)
+            {
+                return idx;
+            }
+            idx++;
+        }
     }
 
     // makes the given MethodVisitor visit method
@@ -257,7 +280,7 @@ public class InstrumentMethod {
                 {
                     if(end > fi.endInstruction)
                     {
-                        TryCatchBlockNode tcb2 = new TryCatchBlockNode(fi.createAfterLabel,
+                        TryCatchBlockNode tcb2 = new TryCatchBlockNode(fi.createAfterLabel(),
                                 tcb.end, tcb.handler, tcb.type);
                         mn.tryCatchBlocks.add(i+1, tcb2);
                     }
@@ -352,8 +375,242 @@ public class InstrumentMethod {
         }
     }
 
+    private void emitNewAndDup(MethodVisitor mv, Frame frame, int stackIndex, MethodInsnNode min)
+    {
+        int arguments = frame.getStackSize() - stackIndex - 1;
+        int neededLocals = 0;
+        for(int i = arguments; i >= 1; i--)
+        {
+            BasicValue v = (BasicValue) frame.getStack(stackIndex + i);
+            mv.visitVarInsn(v.getType().getOpcode(Opcodes.ISTORE), lvarStack+1+neededLocals);
+        }
+        db.log(LogLevel.DEBUG,"Inserting NEW & DUP for constructor call %s%s with %d arguments (%d locals)",
+                min.owner,min.desc,arguments,neededLocals);
+        if(additionalLocals < neededLocals)
+        {
+            additionalLocals = neededLocals;
+        }
+        ((NewValue)frame.getStack(stackIndex - 1)).insn.accept(mv);
+        ((NewValue)frame.getStack(stackIndex)).insn.accept(mv);
+        for(int i=1; i<=arguments; i++)
+        {
+            BasicValue v = (BasicValue) frame.getStack(stackIndex + i);
+            neededLocals -= v.getSize();
+            mv.visitVarInsn(v.getType().getOpcode(Opcodes.ILOAD), lvarStack+1+neededLocals);
+        }
+    }
+
+    private void emitPopMethod(MethodVisitor mv)
+    {
+        mv.visitVarInsn(Opcodes.ALOAD, lvarStack);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL,STACK_NAME, "popMethod","()V");
+    }
+
+    private void emitStoreState(MethodVisitor mv, int idx, FrameInfo fi)
+    {
+        Frame f = frames[fi.endInstruction];
+
+        if(fi.lBefore != null)
+        {
+            fi.lBefore.accept(mv);
+        }
+
+        mv.visitVarInsn(Opcodes.ALOAD,lvarStack);
+        emitConst(mv,idx);
+        emitConst(mv,fi.numSlots);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, STACK_NAME, "pushMethodAndReserveSpace","(II)V");
+
+        for(int i= f.getStackSize(); i-->0 ;)
+        {
+            BasicValue v = (BasicValue) f.getStack(i);
+            if(!isOmitted(v))
+            {
+                if(!isNullType(v))
+                {
+                    int slotIdx = fi.stackSlotIndices[i];
+                    assert slotIdx >=0 && slotIdx < fi.numSlots;
+                    emitStoreValue(mv,v,lvarStack,slotIdx);
+                }else
+                {
+                    db.log(LogLevel.DEBUG,"NULL stack entry: type=%s size=%d",v.getType(),v.getSize());
+                    mv.visitInsn(Opcodes.POP);
+                }
+            }
+        }
+
+        for(int i=firstLocal; i<f.getLocals(); i++)
+        {
+            BasicValue v = (BasicValue) f.getLocal(i);
+            if(!isNullType(v))
+            {
+                mv.visitVarInsn(v.getType().getOpcode(Opcodes.ILOAD),i);
+                int slotIdx = fi.localSlotIndices[i];
+                assert slotIdx >=0 && slotIdx < fi.numSlots;
+                emitStoreValue(mv,v,lvarStack,slotIdx);
+            }
+        }
+    }
+
+    private void emitRestoreState(MethodVisitor mv, int idx, FrameInfo fi)
+    {
+        Frame f = frames[fi.endInstruction];
+
+        for(int i= firstLocal; i<f.getLocals(); i++)
+        {
+            BasicValue v = (BasicValue) f.getLocal(i);
+            if(!isNullType(v))
+            {
+                int slotInx = fi.localSlotIndices[i];
+                assert slotInx >=0 && slotInx < fi.numSlots;
+                emitRestoreValue(mv,v,lvarStack,slotInx);
+                mv.visitVarInsn(v.getType().getOpcode(Opcodes.ISTORE),i);
+            }else if(v != BasicValue.UNINITIALIZED_VALUE)
+            {
+                mv.visitInsn(Opcodes.ACONST_NULL);
+                mv.visitVarInsn(Opcodes.ASTORE, i);
+            }
+        }
+
+        for(int i=0; i<f.getStackSize(); i++)
+        {
+            BasicValue v = (BasicValue) f.getStack(i);
+            if(!isOmitted(v))
+            {
+                if(!isNullType(v))
+                {
+                    int slotIdx = fi.stackSlotIndices[i];
+                    assert slotIdx >=0 && slotIdx < fi.numSlots;
+                    emitRestoreValue(mv,v,lvarStack,slotIdx);
+                }else
+                {
+                    mv.visitInsn(Opcodes.ACONST_NULL);
+                }
+            }
+        }
+
+        if(fi.lAfter != null)
+        {
+            fi.lAfter.accept(mv);
+        }
+    }
+
+    private void emitStoreValue(MethodVisitor mv, BasicValue v, int lvarStack, int idx)
+    {
+        String desc;
+
+        switch (v.getType().getSort())
+        {
+            case Type.OBJECT:
+            case Type.ARRAY:
+                desc = "(Ljava/lang/Object;L"+STACK_NAME+";I)V";
+                break;
+            case Type.BOOLEAN:
+            case Type.BYTE:
+            case Type.SHORT:
+            case Type.CHAR:
+            case Type.INT:
+                desc = "(IL" + STACK_NAME + ";I)V";
+                break;
+            case Type.FLOAT:
+                desc = "(FL"+STACK_NAME+";I)V";
+                break;
+            case Type.LONG:
+                desc = "(JL"+STACK_NAME+";I)V";
+                break;
+            case Type.DOUBLE:
+                desc = "(DL" + STACK_NAME + ";I)V";
+                break;
+            default:
+                throw new InternalError("Unexpected type: " + v.getType());
+        }
+        mv.visitVarInsn(Opcodes.ALOAD, lvarStack);
+        emitConst(mv,idx);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC,STACK_NAME,"push",desc);
+    }
+
+    private void emitRestoreValue(MethodVisitor mv, BasicValue v, int lvarStack, int idx)
+    {
+        mv.visitVarInsn(Opcodes.ALOAD, lvarStack);
+        emitConst(mv,idx);
+
+        switch (v.getType().getSort())
+        {
+            case Type.OBJECT:
+                String internalName = v.getType().getInternalName();
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, STACK_NAME,"getObject","(I)Ljava/lang/Object;");
+                if(!internalName.equals("java/lang/Object"))
+                {
+                    mv.visitTypeInsn(Opcodes.CHECKCAST, internalName);
+                }
+                break;
+            case Type.ARRAY:
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, STACK_NAME, "getObject", "(I)Ljava/lang/Object;");
+                mv.visitTypeInsn(Opcodes.CHECKCAST, v.getType().getDescriptor());
+                break;
+            case Type.BYTE:
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, STACK_NAME, "getInt", "(I)I");
+                mv.visitInsn(Opcodes.I2B);
+                break;
+            case Type.SHORT:
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, STACK_NAME, "getInt", "(I)I");
+                mv.visitInsn(Opcodes.I2S);
+                break;
+            case Type.CHAR:
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, STACK_NAME, "getInt", "(I)I");
+                mv.visitInsn(Opcodes.I2C);
+                break;
+            case Type.BOOLEAN:
+            case Type.INT:
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, STACK_NAME, "getInt", "(I)I");
+                break;
+            case Type.FLOAT:
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, STACK_NAME, "getFloat", "(I)F");
+                break;
+            case Type.LONG:
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, STACK_NAME, "getLong", "(I)J");
+                break;
+            case Type.DOUBLE:
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, STACK_NAME, "getDouble", "(I)D");
+                break;
+            default:
+                throw new InternalError("Unexpected type: " + v.getType());
+        }
+    }
+
+    static boolean isNullType(BasicValue v)
+    {
+        return (v == BasicValue.UNINITIALIZED_VALUE)||
+                (v.isReference() && v.getType().getInternalName().equals("null"));
+    }
+
+    static boolean isOmitted(BasicValue v)
+    {
+        if(v instanceof NewValue)
+        {
+            return ((NewValue)v).omitted;
+        }
+        return false;
+    }
+
+    static boolean isNewValue(Value v, boolean dupped)
+    {
+        if(v instanceof  NewValue)
+        {
+            return ((NewValue)v).isDupped == dupped;
+        }
+        return false;
+    }
 
 
+
+    static class BlockLabelNode extends LabelNode
+    {
+        final int idx;
+        BlockLabelNode(int idx)
+        {
+            this.idx = idx;
+        }
+    }
 
 
     static class FrameInfo{
@@ -363,6 +620,9 @@ public class InstrumentMethod {
         final int numObjSlots;
         final int[] localSlotIndices;
         final int[] stackSlotIndices;
+
+        BlockLabelNode lBefore;
+        BlockLabelNode lAfter;
 
         FrameInfo(Frame f, int firstLocal, int endInstruction, InsnList insnList, MethodDatabase db)
         {
@@ -433,6 +693,24 @@ public class InstrumentMethod {
 
             numSlots = Math.max(idxPrim,idxObj);
             numObjSlots = idxObj;
+        }
+
+        public LabelNode createBeforeLabel()
+        {
+            if(lBefore == null)
+            {
+                lBefore = new BlockLabelNode(endInstruction);
+            }
+            return lBefore;
+        }
+
+        public LabelNode createAfterLabel()
+        {
+            if(lAfter == null)
+            {
+                lAfter = new BlockLabelNode(endInstruction);
+            }
+            return lAfter;
         }
     }
 
