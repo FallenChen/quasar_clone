@@ -8,7 +8,6 @@ import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
 import org.objectweb.asm.tree.analysis.*;
 
-import java.util.Base64;
 import java.util.List;
 import java.util.Stack;
 
@@ -59,6 +58,7 @@ public class InstrumentMethod {
     {
         int numIns = mn.instructions.size();
 
+        codeBlocks[0] = FrameInfo.FIRST;
         for(int i=0; i<numIns; i++)
         {
             Frame f = frames[i];
@@ -215,7 +215,7 @@ public class InstrumentMethod {
         {
             FrameInfo fi = codeBlocks[i];
 
-            MethodInsnNode min = (MethodInsnNode) mn.instructions.get(fi.endInstruction);
+            MethodInsnNode min = (MethodInsnNode) (mn.instructions.get(fi.endInstruction));
             if(InstrumentClass.COROUTINE_NAME.equals(min.owner) && "yield".equals(min.name))
             {
                 // special case - call to yield() - resume AFTER the call
@@ -346,13 +346,13 @@ public class InstrumentMethod {
         }
     }
 
-    private static void dumpParameterAnnotations(MethodVisitor mv, List[] parameterAnnotations,boolean visible)
+    private static void dumpParameterAnnotations(MethodVisitor mv, List[] parameterAnnotations, boolean visible)
     {
         for(int i= 0; i < parameterAnnotations.length; i++)
         {
-            for(Object e : parameterAnnotations[i])
+            for(Object o : parameterAnnotations[i])
             {
-                AnnotationNode an = (AnnotationNode)e;
+                AnnotationNode an = (AnnotationNode)o;
                 an.accept(mv.visitParameterAnnotation(i,an.desc,visible));
             }
         }
@@ -383,6 +383,7 @@ public class InstrumentMethod {
         {
             BasicValue v = (BasicValue) frame.getStack(stackIndex + i);
             mv.visitVarInsn(v.getType().getOpcode(Opcodes.ISTORE), lvarStack+1+neededLocals);
+            neededLocals += v.getSize();
         }
         db.log(LogLevel.DEBUG,"Inserting NEW & DUP for constructor call %s%s with %d arguments (%d locals)",
                 min.owner,min.desc,arguments,neededLocals);
@@ -614,6 +615,7 @@ public class InstrumentMethod {
 
 
     static class FrameInfo{
+        static final FrameInfo FIRST = new FrameInfo(null, 0, 0, null, null);
 
         final int endInstruction;
         final int numSlots;

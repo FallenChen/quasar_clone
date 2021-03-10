@@ -2,10 +2,9 @@ package org.garry.quasar;
 
 public class Util {
 
-    public static int[] copyOf(int[] src, int size)
-    {
+    public static int[] copyOf(int[] src, int size) {
         int[] dst = new int[size];
-        System.arraycopy(src,0,dst,0,Math.min(src.length, size));
+        System.arraycopy(src, 0, dst, 0, Math.min(src.length, size));
         return dst;
     }
 
@@ -21,3 +20,4 @@ public class Util {
         return dst;
 
     }
+}
