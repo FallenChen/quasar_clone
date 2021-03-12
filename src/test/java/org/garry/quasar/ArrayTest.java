@@ -20,7 +20,7 @@ public class ArrayTest  implements CoroutineProto{
     }
 
     @Override
-    public void coExecute() throws SuspendException {
+    public void coExecute() throws SuspendExecution {
         PatchLevel[][] local_patch_levels = l3;
         PatchLevel patch_level = local_patch_levels[0][0];
         patch_level.setLevel(42);

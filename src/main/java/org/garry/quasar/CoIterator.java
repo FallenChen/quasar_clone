@@ -56,9 +56,9 @@ public abstract class CoIterator<E> implements Iterable<E>, Serializable {
     /**
      * Produces the next value to be returned by the {@link #next()} method
      * @param element
-     * @throws SuspendException
+     * @throws SuspendExecution
      */
-    protected void produce(E element) throws SuspendException {
+    protected void produce(E element) throws SuspendExecution {
         if(hasElement)
         {
             throw new IllegalStateException("hasElement = true");
@@ -80,9 +80,9 @@ public abstract class CoIterator<E> implements Iterable<E>, Serializable {
      *
      * This method must only suspend by calling produce. Any other reason
      * for suspension will cause a busy loop in the Iterator
-     * @throws SuspendException
+     * @throws SuspendExecution
      */
-    protected abstract void run() throws SuspendException;
+    protected abstract void run() throws SuspendExecution;
 
 
     private class DelegateExecute implements CoroutineProto, Serializable
@@ -90,7 +90,7 @@ public abstract class CoIterator<E> implements Iterable<E>, Serializable {
         private static final long serialVersionUID = 12784529515412L;
 
         @Override
-        public void coExecute() throws SuspendException {
+        public void coExecute() throws SuspendExecution {
             CoIterator.this.run();
         }
     }

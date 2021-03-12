@@ -1,6 +1,6 @@
 package org.garry.quasar.instrument;
 
-import org.garry.quasar.SuspendException;
+import org.garry.quasar.SuspendExecution;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
@@ -175,7 +175,7 @@ public class InstrumentMethod {
             if(CheckInstrumentationVisitor.EXCEPTION_NAME.equals(tcb.type))
             {
                 throw new UnableToInstrumentException("catch for " +
-                        SuspendException.class.getSimpleName(), className, mn.name, mn.desc);
+                        SuspendExecution.class.getSimpleName(), className, mn.name, mn.desc);
             }
             tcb.accept(mv);
         }

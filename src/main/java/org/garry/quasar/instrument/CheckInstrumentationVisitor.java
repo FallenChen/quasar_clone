@@ -1,16 +1,16 @@
 package org.garry.quasar.instrument;
 
-import org.garry.quasar.SuspendException;
+import org.garry.quasar.SuspendExecution;
 import org.objectweb.asm.*;
 
 /**
  * Check if a class contains suspendable methods
- * Basically this class checks if a method is declared to throw {@link org.garry.quasar.SuspendException}
+ * Basically this class checks if a method is declared to throw {@link SuspendExecution}
  */
 public class CheckInstrumentationVisitor extends ClassVisitor {
 
-    static final String EXCEPTION_NAME = Type.getInternalName(SuspendException.class);
-    static final String EXCEPTION_DESC = Type.getDescriptor(SuspendException.class);
+    static final String EXCEPTION_NAME = Type.getInternalName(SuspendExecution.class);
+    static final String EXCEPTION_DESC = Type.getDescriptor(SuspendExecution.class);
 
     private String className;
     private MethodDatabase.ClassEntry classEntry;

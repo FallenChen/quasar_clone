@@ -18,7 +18,7 @@ public class SuspendTest  implements CoroutineProto {
     }
 
     @Override
-    public void coExecute() throws SuspendException {
+    public void coExecute() throws SuspendExecution {
         int i0 = 0, i1 = 1;
         for (int j = 0; j < 10; j++) {
             i1 = i1 + i0;
@@ -27,7 +27,7 @@ public class SuspendTest  implements CoroutineProto {
         }
     }
 
-    private static void print(String fmt, Object... args) throws SuspendException {
+    private static void print(String fmt, Object... args) throws SuspendExecution {
         System.out.printf(fmt, args);
         Coroutine.yield();
 

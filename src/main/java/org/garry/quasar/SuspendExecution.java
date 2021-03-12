@@ -9,11 +9,11 @@ package org.garry.quasar;
  *
  *
  */
-public final class SuspendException extends Exception{
+public final class SuspendExecution extends Exception{
 
-    static final SuspendException instance = new SuspendException();
+    static final SuspendExecution instance = new SuspendExecution();
 
-    private SuspendException()
+    private SuspendExecution()
     {
 
     }

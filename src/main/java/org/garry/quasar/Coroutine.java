@@ -34,10 +34,10 @@ public class Coroutine implements Runnable, Serializable {
     CoroutineLocal.CoroutineLocalMap coroutineLocals;
     /**
      * Suspend the currently running Coroutine on the calling thread
-     * @throws SuspendException
+     * @throws SuspendExecution
      * @throws IllegalStateException
      */
-    public static void yield() throws SuspendException, IllegalStateException
+    public static void yield() throws SuspendExecution, IllegalStateException
     {
         throw new Error("Calling function not instrumented");
     }
@@ -121,9 +121,9 @@ public class Coroutine implements Runnable, Serializable {
             Stack.setStack(stack);
             try {
                 proto.coExecute();
-            }catch (SuspendException ex)
+            }catch (SuspendExecution ex)
             {
-                assert ex == SuspendException.instance;
+                assert ex == SuspendExecution.instance;
                 result = State.SUSPENDED;
                 stack.resumeStack();
             }

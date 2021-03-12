@@ -10,7 +10,7 @@ public interface CoroutineProto {
      *
      * This method should never be called directly
      *
-     * @throws SuspendException
+     * @throws SuspendExecution
      */
-    void coExecute() throws SuspendException;
+    void coExecute() throws SuspendExecution;
 }
