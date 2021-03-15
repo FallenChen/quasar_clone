@@ -1,13 +1,14 @@
 package org.garry.quasar;
 
 import java.io.Serializable;
+import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 /**
  * A coroutine based iterator
  * @param <E>
  */
-public abstract class CoIterator<E> implements Iterable<E>, Serializable {
+public abstract class CoIterator<E> implements Iterator<E>, Serializable {
 
     private static final long serialVersionUID = 351278561539L;
 
